@@ -11,3 +11,4 @@ requests
 chromadb
 streamlit
 python-dotenv
+openai
