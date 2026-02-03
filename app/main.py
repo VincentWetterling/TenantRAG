@@ -36,6 +36,19 @@ async def upload_doc(
     group_id: str = Form(None),
     doc_file: UploadFile = Form(...)
 ):
+    # Validiere Parameter
+    if scope not in ["user", "group", "company"]:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Ungültiger scope '{scope}'. Erlaubt sind: user, group, company", "success": False}
+        )
+    
+    # group_id ist erforderlich wenn scope=group
+    if scope == "group" and not group_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "group_id ist erforderlich wenn scope=group", "success": False}
+        )
 
     file_bytes = await doc_file.read()
     filename = doc_file.filename or ""
@@ -215,6 +228,19 @@ async def query_docs(
     scope: str = Form(...),
     question: str = Form(...)
 ):
+    # Validiere Parameter
+    if scope not in ["user", "group", "company"]:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Ungültiger scope '{scope}'. Erlaubt sind: user, group, company", "success": False}
+        )
+    
+    if not question or not question.strip():
+        return JSONResponse(
+            status_code=400,
+            content={"error": "question darf nicht leer sein", "success": False}
+        )
+    
     try:
         emb = embed_text(question)
         collection_name = f"{tenant_id}_{scope}_{user_id}"

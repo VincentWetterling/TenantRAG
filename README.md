@@ -128,13 +128,59 @@ curl -X POST http://localhost:8000/upload \
 
 #### Request Parameter
 
-| Parameter | Typ | Beschreibung |
-|-----------|-----|-------------|
-| `tenant_id` | string | Eindeutige Mandanten-ID (erforderlich) |
-| `user_id` | string | Benutzer-ID (erforderlich) |
-| `scope` | enum | `user` \| `group` \| `company` (erforderlich) |
-| `group_id` | string | Gruppen-ID wenn scope=group (optional) |
-| `doc_file` | file | PDF oder TXT Datei (erforderlich) |
+| Parameter | Typ | Beschreibung | Erforderlich |
+|-----------|-----|-------------|--------------|
+| `tenant_id` | string | **Mandanten-ID** (Unternehmen) | ✅ Immer |
+| `user_id` | string | **Benutzer-ID** (Mitarbeiter) | ✅ Immer |
+| `scope` | enum | **Zugriffslevel** - siehe Tabelle unten | ✅ Immer |
+| `group_id` | string | **Gruppen-ID** - NUR wenn `scope=group` | ⚠️ Bedingt |
+| `doc_file` | file | PDF oder TXT Datei | ✅ Immer |
+
+#### Scope & Zugriffskontrolle
+
+Die `scope` Parameter bestimmt, wer auf die hochgeladene Datei zugreifen kann:
+
+| Scope | Beschreibung | Zugriff | group_id | Beispiel |
+|-------|-------------|--------|----------|----------|
+| `user` | Nur **dieser Mitarbeiter** | Nur `user_id` | ❌ Nicht nötig | Persönliche Notizen |
+| `group` | **Gruppe von Mitarbeitern** | `user_id` + `group_id` | ✅ **Erforderlich** | Team-Dokumentation |
+| `company` | **Gesamtes Unternehmen** | Alle mit `tenant_id` | ❌ Nicht nötig | Unternehmensrichtlinien |
+
+#### Praktische Beispiele
+
+**Beispiel 1: Persönliches Dokument (scope=user)**
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "tenant_id=acme_corp" \
+  -F "user_id=john_doe" \
+  -F "scope=user" \
+  -F "doc_file=@my_notes.pdf"
+
+# group_id ist NICHT nötig
+```
+
+**Beispiel 2: Team-Dokument (scope=group)**
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "tenant_id=acme_corp" \
+  -F "user_id=john_doe" \
+  -F "scope=group" \
+  -F "group_id=sales_team" \
+  -F "doc_file=@sales_strategy.pdf"
+
+# group_id ist ERFORDERLICH!
+```
+
+**Beispiel 3: Unternehmens-Dokument (scope=company)**
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "tenant_id=acme_corp" \
+  -F "user_id=john_doe" \
+  -F "scope=company" \
+  -F "doc_file=@company_handbook.pdf"
+
+# group_id ist NICHT nötig
+```
 
 #### Success Response (200)
 
@@ -185,12 +231,17 @@ curl -X POST http://localhost:8000/query \
 
 #### Request Parameter
 
-| Parameter | Typ | Beschreibung |
-|-----------|-----|-------------|
-| `tenant_id` | string | Mandanten-ID (erforderlich) |
-| `user_id` | string | Benutzer-ID (erforderlich) |
-| `scope` | enum | `user` \| `group` \| `company` (erforderlich) |
-| `question` | string | Die Suchfrage (erforderlich) |
+| Parameter | Typ | Beschreibung | Erforderlich |
+|-----------|-----|-------------|--------------|
+| `tenant_id` | string | **Mandanten-ID** (Unternehmen) | ✅ Immer |
+| `user_id` | string | **Benutzer-ID** (Mitarbeiter) | ✅ Immer |
+| `scope` | enum | **Zugriffslevel** - `user` \| `group` \| `company` | ✅ Immer |
+| `question` | string | Die Suchfrage/Anfrage | ✅ Immer |
+
+**Hinweis:** Bei Query wird `scope` automatisch berücksichtigt:
+- `scope=user`: Nur Dokumente dieses Mitarbeiters
+- `scope=group`: Dokumente der Gruppe (erfordert `group_id` beim Upload)
+- `scope=company`: Alle Dokumente des Unternehmens
 
 #### Success Response (200)
 

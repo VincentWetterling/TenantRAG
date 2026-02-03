@@ -1,5 +1,25 @@
 # 🧪 TenantRAG API Test Guide
 
+## 🎯 Zugriffskontrolle verstehen
+
+**Hierarchie der Daten-Isolierung:**
+
+```
+Unternehmen (tenant_id)
+  └── Mitarbeiter (user_id)
+      ├── Persönliche Dokumente (scope=user)
+      └── Team-Dokumente (scope=group + group_id)
+  └── Unternehmens-Dokumente (scope=company)
+```
+
+| Scope | Zugriff | group_id | Beispiel |
+|-------|--------|----------|----------|
+| `user` | Nur dieser Mitarbeiter | ❌ Nicht nötig | Persönliche Notizen |
+| `group` | Diese Gruppe | ✅ **Erforderlich** | Sales-Team Dokumente |
+| `company` | Ganzes Unternehmen | ❌ Nicht nötig | Handbuch |
+
+---
+
 ## Upload Endpoint
 
 ### Einfaches Beispiel mit cURL
