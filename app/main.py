@@ -4,7 +4,6 @@ from fastapi.responses import JSONResponse
 import uuid
 from datetime import datetime
 
-from .db import async_session
 from .schemas import UploadDoc
 from .embeddings import embed_text
 from .chroma_client import get_collection
