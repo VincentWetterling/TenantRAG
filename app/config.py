@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     chroma_auth_token: str
     chroma_auth_token_transport_header: str = "X-Token"
     
-    # Relationale Datenbank
-    database_url: str
+    # Relationale Datenbank (optional - nur wenn SQLAlchemy benötigt)
+    database_url: str = "sqlite:///./test.db"
     
     # Streamlit WebUI
     webui_username: str
