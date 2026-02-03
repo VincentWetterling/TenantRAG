@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Request, UploadFile, Form
-from fastapi.responses import RedirectResponse
-from starlette.status import HTTP_303_SEE_OTHER
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, UploadFile, Form
+from fastapi.responses import JSONResponse
+
+import uuid
+from datetime import datetime
 
 from .db import async_session
 from .schemas import UploadDoc
@@ -15,20 +15,21 @@ from pathlib import Path
 from pdfminer.high_level import extract_text
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = str(BASE_DIR / "web" / "static")
-TEMPLATES_DIR = str(BASE_DIR / "web" / "templates")
 
-app = FastAPI()
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
+app = FastAPI(title="TenantRAG API", description="Multi-Tenant RAG System")
 
-@app.get("/")
-async def upload_form(request: Request, error: str = None, success: str = None):
-    return templates.TemplateResponse("upload.html", {"request": request, "error": error, "success": success})
+@app.get("/health")
+async def health():
+    """Health Check Endpoint"""
+    return {"status": "healthy", "version": "1.0.0", "timestamp": datetime.now().isoformat()}
+
+@app.get("/docs", include_in_schema=False)
+async def docs_redirect():
+    """Redirect to API documentation"""
+    return {"message": "API Documentation available at /docs"}
 
 @app.post("/upload")
 async def upload_doc(
-    request: Request,
     tenant_id: str = Form(...),
     user_id: str = Form(...),
     scope: str = Form(...),
@@ -46,46 +47,193 @@ async def upload_doc(
         pdf_stream = io.BytesIO(file_bytes)
         try:
             text = extract_text(pdf_stream)
-        except Exception:
-            url = app.url_path_for("upload_form") + "?error=PDF konnte nicht gelesen werden."
-            return RedirectResponse(url, status_code=HTTP_303_SEE_OTHER)
+        except Exception as e:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"PDF konnte nicht gelesen werden: {str(e)}", "success": False}
+            )
     elif ext in [".txt", ""]:
         try:
             text = file_bytes.decode("utf-8")
         except UnicodeDecodeError:
-            url = app.url_path_for("upload_form") + "?error=Die Datei ist keine gültige UTF-8-Textdatei. Bitte lade eine reine Textdatei hoch."
-            return RedirectResponse(url, status_code=HTTP_303_SEE_OTHER)
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Die Datei ist keine gültige UTF-8-Textdatei. Bitte lade eine reine Textdatei hoch.", "success": False}
+            )
     else:
-        url = app.url_path_for("upload_form") + "?error=Dateiformat nicht unterstützt. Bitte lade eine PDF- oder Textdatei hoch."
-        return RedirectResponse(url, status_code=HTTP_303_SEE_OTHER)
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Dateiformat nicht unterstützt. Bitte lade eine PDF- oder Textdatei hoch.", "success": False}
+        )
 
     if not text or not text.strip():
-        url = app.url_path_for("upload_form") + "?error=Die Datei enthält keinen extrahierbaren Text."
-        return RedirectResponse(url, status_code=HTTP_303_SEE_OTHER)
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Die Datei enthält keinen extrahierbaren Text.", "success": False}
+        )
 
-    chunks = text.split("\n\n")  # simple chunk
+    # Intelligente Chunk-Strategie: Nach Absätzen, intelligent zusammengefasst
+    def create_smart_chunks(text, min_chunk_size=300, max_chunk_size=2000):
+        """
+        Erstelle Chunks basierend auf Absätzen mit intelligenter Zusammenfassung.
+        - Splittet primär nach Absätzen (doppelte Zeilenumbrüche)
+        - Kombiniert kleine Absätze bis zur Mindestgröße
+        - Stoppt nicht, wenn max_chunk_size überschritten wird (respektiert Absatzgrenzen)
+        """
+        # Split nach doppelten Zeilenumbrüchen (Absätze)
+        paragraphs = text.split('\n\n')
+        
+        chunks = []
+        current_chunk = []
+        current_size = 0
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            para_size = len(para)
+            
+            # Wenn ein einzelner Absatz größer als max_chunk_size ist, spalte ihn
+            if para_size > max_chunk_size:
+                # Speichere bisherigen Chunk falls vorhanden
+                if current_chunk:
+                    chunk_text = '\n\n'.join(current_chunk).strip()
+                    if len(chunk_text) >= min_chunk_size:
+                        chunks.append(chunk_text)
+                    current_chunk = []
+                    current_size = 0
+                
+                # Spalte großen Absatz in Sätze auf
+                sentences = para.replace('! ', '!|').replace('? ', '?|').replace('. ', '.|').split('|')
+                sub_chunk = []
+                sub_size = 0
+                
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    sent_size = len(sentence)
+                    
+                    if sub_size + sent_size > max_chunk_size and sub_chunk:
+                        chunks.append(' '.join(sub_chunk))
+                        sub_chunk = [sentence]
+                        sub_size = sent_size
+                    else:
+                        sub_chunk.append(sentence)
+                        sub_size += sent_size + 1
+                
+                if sub_chunk:
+                    chunks.append(' '.join(sub_chunk))
+            
+            # Normaler Fall: Absatz ist ok
+            elif current_size + para_size > max_chunk_size and current_chunk:
+                # Chunk ist voll, speichere und starte neuen
+                chunk_text = '\n\n'.join(current_chunk).strip()
+                if len(chunk_text) >= min_chunk_size:
+                    chunks.append(chunk_text)
+                current_chunk = [para]
+                current_size = para_size
+            else:
+                # Füge Absatz zu aktuellem Chunk hinzu
+                current_chunk.append(para)
+                current_size += para_size + 2  # +2 für \n\n
+        
+        # Letzten Chunk speichern
+        if current_chunk:
+            chunk_text = '\n\n'.join(current_chunk).strip()
+            if len(chunk_text) >= min_chunk_size:
+                chunks.append(chunk_text)
+            elif chunks:  # Wenn zu klein, zum letzten Chunk hinzufügen
+                chunks[-1] += '\n\n' + chunk_text
+            else:
+                chunks.append(chunk_text)  # Oder als erstes Chunk (falls nur eins)
+        
+        return chunks
+    
+    chunks = create_smart_chunks(text, min_chunk_size=300, max_chunk_size=2000)
     collection_name = f"{tenant_id}_{scope}_{user_id}"
     col = get_collection(collection_name)
+    # Bestimme Dateityp
+    file_ext = os.path.splitext(filename)[1].lower() or "unknown"
+    upload_date = datetime.now().isoformat()
+    file_size = len(file_bytes)
+    file_id = str(uuid.uuid4())  # Eindeutige ID für die gesamte Datei
+    
     try:
         for c in chunks:
             emb = embed_text(c)
-            col.add({"embeddings":[emb],"documents":[c]})
+            chunk_id = str(uuid.uuid4())
+            metadata = {
+                "file_id": file_id,  # Datei-ID zur Identifikation
+                "filename": filename,
+                "file_type": file_ext,
+                "file_size": file_size,
+                "upload_date": upload_date,
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "scope": scope,
+                "group_id": group_id or "N/A"
+            }
+            col.add(
+                ids=[chunk_id],
+                embeddings=[emb],
+                documents=[c],
+                metadatas=[metadata]
+            )
     except Exception as e:
-        url = app.url_path_for("upload_form") + f"?error=Fehler bei IONOS AI Embedding: {str(e)}"
-        return RedirectResponse(url, status_code=HTTP_303_SEE_OTHER)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Fehler bei IONOS AI Embedding: {str(e)}", "success": False}
+        )
 
-    url = app.url_path_for("upload_form") + f"?success={len(chunks)} Text-Chunks erfolgreich hochgeladen."
-    return RedirectResponse(url, status_code=HTTP_303_SEE_OTHER)
-
-@app.get("/query")
-async def query_form(request: Request):
-    return templates.TemplateResponse("query.html", {"request": request})
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": True,
+            "message": f"{len(chunks)} Text-Chunks erfolgreich hochgeladen.",
+            "data": {
+                "file_id": file_id,
+                "filename": filename,
+                "file_type": file_ext,
+                "file_size": file_size,
+                "upload_date": upload_date,
+                "chunks_count": len(chunks),
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "scope": scope,
+                "group_id": group_id or None,
+                "collection_name": f"{tenant_id}_{scope}_{user_id}"
+            }
+        }
+    )
 
 @app.post("/query")
 async def query_docs(
     tenant_id: str = Form(...),
     user_id: str = Form(...),
+    scope: str = Form(...),
     question: str = Form(...)
 ):
-    # Für Test: zeige alle docs
-    return {"tenant":tenant_id,"user":user_id,"question":question}
+    try:
+        emb = embed_text(question)
+        collection_name = f"{tenant_id}_{scope}_{user_id}"
+        col = get_collection(collection_name)
+        results = col.query(query_embeddings=[emb], n_results=5)
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "question": question,
+                "documents": results.get("documents", []),
+                "metadatas": results.get("metadatas", []),
+                "distances": results.get("distances", []),
+                "results_count": len(results.get("documents", [[]])[0]) if results.get("documents") else 0
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Fehler bei Query: {str(e)}", "success": False}
+        )

@@ -1,0 +1,64 @@
+# Production Docker Compose Konfiguration
+# ========================================
+# Startet nur die TenantRAG FastAPI Anwendung.
+#
+# Externe Abhängigkeiten (müssen separat gehostet sein):
+# - ChromaDB: https://chroma-url (in .env)
+# - MariaDB: mysql+asyncmy://host:port/db (in .env)
+#
+# Starten:
+#   docker-compose -f docker-compose.prod.yml up -d
+#
+# Logs anschauen:
+#   docker-compose -f docker-compose.prod.yml logs -f tenantrag
+#
+# Stoppen:
+#   docker-compose -f docker-compose.prod.yml down
+
+version: '3.8'
+
+services:
+  tenantrag:
+    # Baue aus Dockerfile.prod
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    
+    # Image-Name
+    image: tenantrag:latest
+    container_name: tenantrag-backend
+    
+    # Ports
+    ports:
+      - "8000:8000"
+    
+    # Umgebungsvariablen aus .env laden
+    env_file:
+      - .env
+    
+    # Environment Overrides (optional)
+    environment:
+      - LOG_LEVEL=info
+      - PYTHONUNBUFFERED=1
+    
+    # Neustarts
+    restart: unless-stopped
+    
+    # Ressourcen-Limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    
+    # Volumes (für Logs, optional)
+    volumes:
+      - ./logs:/app/logs
+
+# Optionales Netzwerk für externe Services
+networks:
+  default:
+    driver: bridge
