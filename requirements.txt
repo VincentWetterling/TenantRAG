@@ -1,0 +1,11 @@
+pdfminer.six
+fastapi
+uvicorn[standard]
+aiohttp
+pydantic-settings
+sqlalchemy
+asyncmy
+jinja2
+python-multipart
+requests
+chromadb

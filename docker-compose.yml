@@ -1,0 +1,24 @@
+version: '3.8'
+services:
+  tenantrag:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - mariadb
+      - chromadb
+  mariadb:
+    image: mariadb:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tenantrag
+      MYSQL_USER: user
+      MYSQL_PASSWORD: pass
+    ports:
+      - "3306:3306"
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8000"
