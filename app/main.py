@@ -164,7 +164,16 @@ async def upload_doc(
         return chunks
     
     chunks = create_smart_chunks(text, min_chunk_size=300, max_chunk_size=2000)
-    collection_name = f"{tenant_id}_{scope}_{user_id}"
+    
+    # Erstelle valid collection_name für ChromaDB (3-512 chars, alphanumeric/._-, must start/end with alphanumeric)
+    # Entferne leading underscores und trailing hyphens/underscores
+    clean_tenant_id = tenant_id.rstrip('-_').lstrip('_')
+    clean_user_id = user_id.rstrip('-_').lstrip('_')
+    collection_name = f"{clean_tenant_id}_{scope}_{clean_user_id}".replace('--', '-').replace('__', '_')
+    # Stelle sicher dass Name mit alphanumerisch anfängt und endet
+    collection_name = ''.join(c for c in collection_name if c.isalnum() or c in '._-')
+    collection_name = collection_name.lstrip('._-').rstrip('._-')
+    
     col = get_collection(collection_name)
     # Bestimme Dateityp
     file_ext = os.path.splitext(filename)[1].lower() or "unknown"
